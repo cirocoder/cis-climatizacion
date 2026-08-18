@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { academy } from "@/data/academy";
 import { site } from "@/data/site";
+import { AcademyAccountLink } from "@/components/auth/AcademyAccountLink";
 
 export function AcademyHeader() {
   return <header className="academy-header">
@@ -14,6 +15,7 @@ export function AcademyHeader() {
         <Link href="/academia">Academia</Link>
         <Link href="/academia/kit-5p">Kit CIS 5P</Link>
         <Link href="/academia/kit-5p/recursos">Recursos</Link>
+        <AcademyAccountLink/>
         <Link className="academy-back-link" href="/">CIS Climatización</Link>
       </nav>
     </div>

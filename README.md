@@ -1,13 +1,18 @@
 # CIS Climatización
 
-Landing corporativa desarrollada con Next.js App Router, TypeScript y Tailwind CSS. Es una web estática, sin backend ni base de datos.
+Sitio corporativo y base de identidad de CIS Academia desarrollados con Next.js App Router, TypeScript y Tailwind CSS. Las páginas públicas conservan su funcionamiento sin base de datos; registro, sesiones y Mi Academia utilizan PostgreSQL mediante Prisma y Better Auth.
 
 ## Ejecutar localmente
 
-Requisitos: Node.js 20 o superior y npm.
+Requisitos:
+
+- Node.js 22.12 o superior dentro de la rama 22 LTS. El proyecto fue validado con Node.js 22.17.0.
+- npm 10 o superior.
+- PostgreSQL 14 o superior. Para producción se recomienda Neon.
 
 ```bash
 npm install
+npm run prisma:generate
 npm run dev
 ```
 
@@ -15,9 +20,70 @@ Abrir `http://localhost:3000`. Para validar y ejecutar producción:
 
 ```bash
 npm run lint
+npm run typecheck
+npm test
 npm run build
 npm start
 ```
+
+## PostgreSQL y Prisma
+
+El esquema se encuentra en `prisma/schema.prisma`. En Sprint 0/1 contiene únicamente `User`, `Session`, `Account`, `Verification` y el enum `Role` requerido por la identidad.
+
+Para Neon deben utilizarse dos conexiones:
+
+- `DATABASE_URL`: URL con pooling (`-pooler` en el hostname), utilizada por la aplicación mediante `@prisma/adapter-neon`.
+- `DIRECT_URL`: URL directa sin pooler, utilizada por Prisma CLI para migraciones.
+
+En desarrollo local, una URL con hostname `localhost` o `127.0.0.1` utiliza automáticamente el adaptador PostgreSQL convencional. Comandos disponibles:
+
+```bash
+npm run prisma:generate
+npm run prisma:migrate -- --name nombre-del-cambio
+npm run prisma:deploy
+npm run prisma:studio
+```
+
+No ejecutar `prisma db push` en producción. Las migraciones versionadas están en `prisma/migrations/`.
+
+## Identidad de CIS Academia
+
+Better Auth gestiona:
+
+- registro con email y contraseña;
+- verificación de correo;
+- login y logout;
+- sesiones de siete días con actualización diaria;
+- recuperación y restablecimiento de contraseña;
+- revocación de sesiones después del restablecimiento.
+
+Rutas públicas de identidad:
+
+- `/ingresar`
+- `/registro`
+- `/recuperar-cuenta`
+- `/restablecer-clave`
+
+`/academia/mi-academia` requiere una sesión válida. La autorización está centralizada en `src/lib/dal/auth.ts`; ocultar un enlace en la interfaz nunca reemplaza esa verificación de servidor.
+
+Todos los registros reciben el rol `USER`. El campo `role` no se acepta desde formularios ni desde el endpoint público de registro.
+
+### Crear el primer ADMIN
+
+1. Registrar y verificar normalmente la cuenta.
+2. Ejecutar desde una terminal segura con `DATABASE_URL` configurada:
+
+```bash
+npm run admin:promote -- correo-real@dominio.com
+```
+
+El script actualiza una cuenta existente. No existe un endpoint público para elevar roles. En producción, registrar esta operación y rotar las credenciales si se utilizaron desde una máquina temporal.
+
+## Correo transaccional
+
+La implementación utiliza Resend para verificación y recuperación. Es obligatorio configurar un dominio/remitente autorizado en `EMAIL_FROM` y una clave válida en `RESEND_API_KEY`.
+
+Si esas variables faltan, registro, reenvío de verificación y recuperación responden con servicio no disponible; la interfaz no afirma que se haya enviado un correo. Los tests usan un buzón interno disponible únicamente cuando `NODE_ENV=test` y nunca contactan a Resend.
 
 ## Editar los datos de la empresa
 
@@ -73,15 +139,32 @@ El logo se encuentra en `public/images/cis-logo.png`. Debe conservar su proporci
 
 ## Variables de entorno
 
-No se requieren variables de entorno en esta versión. Si se agrega un backend, los secretos deben permanecer en variables del servidor.
+Copiar `.env.example` a `.env.local` y completar:
+
+```dotenv
+DATABASE_URL=
+DIRECT_URL=
+BETTER_AUTH_SECRET=
+BETTER_AUTH_URL=http://localhost:3000
+RESEND_API_KEY=
+EMAIL_FROM=
+APP_URL=http://localhost:3000
+```
+
+`BETTER_AUTH_SECRET` debe ser criptográficamente aleatorio y tener al menos 32 caracteres. Ninguna de estas variables debe usar el prefijo `NEXT_PUBLIC_`. `.env*` está ignorado por Git, con la única excepción deliberada de `.env.example`.
+
+En Vercel se deben configurar valores separados para Development, Preview y Production. Las URLs de producción deben utilizar HTTPS y coincidir con el dominio real.
 
 ## Desplegar en Vercel
 
 1. Subir el proyecto a un repositorio Git.
 2. En Vercel, crear un proyecto e importar el repositorio.
 3. Mantener el preset Next.js y el comando `npm run build`.
-4. Configurar el dominio definitivo.
-5. Confirmar metadata, sitemap, robots y datos estructurados.
-6. Desplegar y revisar móvil, tablet y escritorio.
+4. Conectar una base Neon y configurar las siete variables del ejemplo.
+5. Ejecutar `npm run prisma:deploy` contra la rama de base correspondiente antes de promover el despliegue.
+6. Configurar y verificar el dominio remitente en Resend.
+7. Configurar el dominio definitivo.
+8. Confirmar metadata, sitemap, robots y datos estructurados.
+9. Desplegar y revisar móvil, tablet y escritorio.
 
 La carpeta `private-originals/` nunca debe subirse a Vercel ni servirse públicamente.

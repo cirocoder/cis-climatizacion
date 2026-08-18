@@ -9,3 +9,5 @@
 /.pnpm-store
 
 private-originals/
+/src/generated/prisma/
+/.env.test.local
