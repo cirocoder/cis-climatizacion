@@ -28,7 +28,7 @@ npm start
 
 ## PostgreSQL y Prisma
 
-El esquema se encuentra en `prisma/schema.prisma`. En Sprint 0/1 contiene únicamente `User`, `Session`, `Account`, `Verification`, la tabla técnica `RateLimit` y el enum `Role` requerido por la identidad.
+El esquema se encuentra en `prisma/schema.prisma`. Además de la identidad (`User`, `Session`, `Account`, `Verification`, `RateLimit`), Sprint 2 incorpora el catálogo `Product` y la autorización `Entitlement`.
 
 Para Neon deben utilizarse dos conexiones:
 
@@ -41,6 +41,7 @@ En desarrollo local, una URL con hostname `localhost` o `127.0.0.1` utiliza auto
 npm run prisma:generate
 npm run prisma:migrate -- --name nombre-del-cambio
 npm run prisma:deploy
+npm run prisma:seed
 npm run prisma:studio
 ```
 
@@ -85,6 +86,31 @@ Rutas públicas de identidad:
 - `/restablecer-clave`
 
 `/academia/mi-academia` requiere una sesión válida. La autorización está centralizada en `src/lib/dal/auth.ts`; ocultar un enlace en la interfaz nunca reemplaza esa verificación de servidor.
+
+### Catálogo y accesos de Academia
+
+El Kit CIS 5P se crea o actualiza de forma idempotente mediante:
+
+```bash
+npm run prisma:seed
+```
+
+El seed sólo incorpora `kit-cis-5p`; no asigna precio ni crea cursos ficticios. La página `/academia/kit-5p` continúa siendo pública y comercial. El contenido asociado a una cuenta vive bajo `/academia/mi-academia/productos/[slug]` y exige sesión más un `Entitlement` utilizable comprobado en servidor.
+
+Un acceso es utilizable sólo cuando está `ACTIVE`, ya comenzó, no venció y no fue revocado. Los productos `DRAFT` o `ARCHIVED` tampoco se entregan. Ante un producto inexistente o una cuenta sin acceso, la ruta privada responde con la misma página neutral de contenido no disponible.
+
+La restricción única `userId + productId + sourceType` mantiene una sola concesión equivalente por origen. Así, el grant administrativo reactiva la misma fila y los futuros orígenes `PURCHASE` y `SUBSCRIPTION` pueden mantenerse separados. Cuando se incorporen pagos, sus identificadores externos se guardarán en `sourceId`; `Entitlement` continuará siendo la única fuente de autorización.
+
+Concesión y revocación manual, disponibles sólo desde terminal:
+
+```bash
+npm run entitlement:grant -- correo@dominio.com kit-cis-5p
+npm run entitlement:revoke -- correo@dominio.com kit-cis-5p
+```
+
+Ambos comandos validan los argumentos, buscan un usuario y producto existentes, son idempotentes y no exponen endpoints HTTP. El grant usa `sourceType=ADMIN` y acceso permanente; el revoke marca `REVOKED` y completa `revokedAt`.
+
+Los recursos mostrados dentro del producto privado continúan como `Próximamente`. Sprint 2 no incorpora archivos premium en `public/`; el almacenamiento y la descarga protegida quedan reservados para un sprint posterior.
 
 Todos los registros reciben el rol `USER`. El campo `role` no se acepta desde formularios ni desde el endpoint público de registro.
 
