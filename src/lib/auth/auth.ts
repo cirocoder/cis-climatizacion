@@ -14,6 +14,13 @@ function createAuth() {
     secret: environment.BETTER_AUTH_SECRET,
     trustedOrigins: [environment.APP_URL, environment.BETTER_AUTH_URL],
     database: prismaAdapter(getPrisma(), { provider: "postgresql" }),
+    rateLimit: {
+      enabled: true,
+      storage: "database",
+      customRules: {
+        "/send-verification-email": { window: 60, max: 3 },
+      },
+    },
     user: {
       additionalFields: {
         role: { type: ["USER", "ADMIN"], required: false, defaultValue: "USER", input: false },
@@ -35,8 +42,8 @@ function createAuth() {
       },
     },
     emailVerification: {
-      sendOnSignUp: true,
-      sendOnSignIn: true,
+      sendOnSignUp: false,
+      sendOnSignIn: false,
       autoSignInAfterVerification: false,
       expiresIn: 60 * 60,
       sendVerificationEmail: async ({ user, url }) => {

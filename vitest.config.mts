@@ -1,5 +1,8 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+import { loadSafeTestDatabaseEnvironment } from "./scripts/test-database-environment.mjs";
+
+loadSafeTestDatabaseEnvironment();
 
 export default defineConfig({
   resolve: {

@@ -28,7 +28,7 @@ npm start
 
 ## PostgreSQL y Prisma
 
-El esquema se encuentra en `prisma/schema.prisma`. En Sprint 0/1 contiene únicamente `User`, `Session`, `Account`, `Verification` y el enum `Role` requerido por la identidad.
+El esquema se encuentra en `prisma/schema.prisma`. En Sprint 0/1 contiene únicamente `User`, `Session`, `Account`, `Verification`, la tabla técnica `RateLimit` y el enum `Role` requerido por la identidad.
 
 Para Neon deben utilizarse dos conexiones:
 
@@ -45,6 +45,26 @@ npm run prisma:studio
 ```
 
 No ejecutar `prisma db push` en producción. Las migraciones versionadas están en `prisma/migrations/`.
+
+### Base exclusiva para tests
+
+Los tests de autenticación crean y eliminan usuarios, sesiones, cuentas, verificaciones y contadores de rate limiting. Nunca deben ejecutarse contra la base de la aplicación ni contra Neon.
+
+1. Crear una base PostgreSQL local cuyo nombre incluya `test`, por ejemplo `cis_academia_test`.
+2. Copiar `.env.test.example` a `.env.test.local` y completar únicamente `TEST_DATABASE_URL` con esa base local.
+3. Ejecutar:
+
+```bash
+npm test
+```
+
+El hook `pretest` valida que el hostname sea `localhost`, `127.0.0.1` o `::1`, que el nombre de la base contenga `test` y aplica las migraciones antes de iniciar Vitest. No carga `DATABASE_URL` desde `.env` ni admite bases remotas. Si la configuración segura o PostgreSQL faltan, el comando falla con una explicación; la suite nunca se convierte silenciosamente en `skipped`.
+
+### Auditoría de dependencias
+
+PostCSS se fija mediante `overrides` en una versión 8.5.x corregida porque Next.js, Tailwind y Vite lo incorporan transitivamente con rangos distintos. Cualquier cambio de ese override debe validarse con `npm ls postcss`, build, lint, typecheck y tests.
+
+Prisma 7.9.1 incorpora `deepmerge-ts@7.1.5` a través de `prisma > @prisma/config`. Ese paquete se utiliza al cargar `prisma.config.ts` desde el CLI para generar el cliente, aplicar migraciones o abrir Studio; la aplicación no importa `@prisma/config` en sus rutas de servidor. Mientras Prisma no publique una versión 7 estable que actualice oficialmente esa dependencia, no debe forzarse `deepmerge-ts@8`, degradarse Prisma 6 ni instalarse Prisma 8 RC. Revisar nuevamente este árbol al actualizar Prisma.
 
 ## Identidad de CIS Academia
 
@@ -84,6 +104,8 @@ El script actualiza una cuenta existente. No existe un endpoint público para el
 La implementación utiliza Resend para verificación y recuperación. Es obligatorio configurar un dominio/remitente autorizado en `EMAIL_FROM` y una clave válida en `RESEND_API_KEY`.
 
 Si esas variables faltan, registro, reenvío de verificación y recuperación responden con servicio no disponible; la interfaz no afirma que se haya enviado un correo. Los tests usan un buzón interno disponible únicamente cuando `NODE_ENV=test` y nunca contactan a Resend.
+
+Después de aceptar un registro, la interfaz solicita explícitamente el correo de verificación mediante Better Auth para poder distinguir un envío aceptado de un fallo real del proveedor. Conserva el correo sólo en el estado local del formulario y ofrece `Reenviar correo de verificación`; no se realizan envíos automáticos duplicados al registrarse o intentar ingresar. Better Auth responde de forma neutra tanto para cuentas verificadas como para correos inexistentes y sólo envía cuando existe una cuenta pendiente. El endpoint está limitado a tres solicitudes por minuto e IP; el contador se guarda en la tabla PostgreSQL `rateLimit`, por lo que funciona de manera consistente en despliegues serverless. Aplicá la migración `20260819000000_auth_rate_limit` antes de desplegar este cambio.
 
 ## Editar los datos de la empresa
 

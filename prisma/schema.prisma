@@ -75,3 +75,13 @@ model Verification {
   @@index([identifier])
   @@map("verification")
 }
+
+model RateLimit {
+  id          String @id
+  key         String
+  count       Int
+  lastRequest BigInt
+
+  @@index([key])
+  @@map("rateLimit")
+}

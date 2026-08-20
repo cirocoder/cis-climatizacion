@@ -5,9 +5,9 @@
 *.log
 .env*
 !.env.example
+!.env.test.example
 
 /.pnpm-store
 
 private-originals/
 /src/generated/prisma/
-/.env.test.local
