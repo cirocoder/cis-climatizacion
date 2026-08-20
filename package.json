@@ -19,6 +19,7 @@
     "entitlement:grant": "tsx scripts/entitlement-grant.ts",
     "entitlement:revoke": "tsx scripts/entitlement-revoke.ts",
     "sprint2:validate": "node --conditions=react-server --import tsx scripts/validate-sprint2-flow.ts",
+    "payments:reconcile": "node --conditions=react-server --import tsx scripts/reconcile-payments.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

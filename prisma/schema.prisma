@@ -41,6 +41,27 @@ enum EntitlementSourceType {
   SUBSCRIPTION
 }
 
+enum PurchaseStatus {
+  CREATED
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentProvider {
+  MERCADOPAGO
+}
+
+enum PaymentEventProcessingStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
 model User {
   id            String    @id
   name          String
@@ -53,6 +74,7 @@ model User {
   sessions      Session[]
   accounts      Account[]
   entitlements  Entitlement[]
+  purchases     Purchase[]
 
   @@map("user")
 }
@@ -70,9 +92,75 @@ model Product {
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
   entitlements Entitlement[]
+  purchaseItems PurchaseItem[]
 
   @@index([status])
   @@map("product")
+}
+
+model Purchase {
+  id                   String          @id @default(cuid())
+  userId               String
+  status               PurchaseStatus  @default(CREATED)
+  currency             String
+  total                Decimal         @db.Decimal(12, 2)
+  externalReference    String          @unique
+  provider             PaymentProvider @default(MERCADOPAGO)
+  providerPreferenceId String?         @unique
+  providerPaymentId    String?         @unique
+  providerCheckoutUrl  String?
+  checkoutKey          String?         @unique
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  approvedAt           DateTime?
+  cancelledAt          DateTime?
+  refundedAt           DateTime?
+  user                 User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  items                PurchaseItem[]
+  paymentEvents        PaymentEvent[]
+
+  @@index([userId])
+  @@index([userId, status, createdAt])
+  @@index([status, updatedAt])
+  @@map("purchase")
+}
+
+model PurchaseItem {
+  id                   String   @id @default(cuid())
+  purchaseId           String
+  productId            String
+  productTitleSnapshot String
+  unitPrice            Decimal  @db.Decimal(12, 2)
+  quantity             Int      @default(1)
+  subtotal             Decimal  @db.Decimal(12, 2)
+  createdAt            DateTime @default(now())
+  purchase             Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  product              Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([purchaseId])
+  @@index([productId])
+  @@map("purchaseItem")
+}
+
+model PaymentEvent {
+  id                 String                       @id @default(cuid())
+  purchaseId         String?
+  provider           PaymentProvider
+  providerEventId    String
+  eventType          String
+  providerResourceId String
+  payload            Json?
+  processingStatus   PaymentEventProcessingStatus @default(RECEIVED)
+  receivedAt         DateTime                     @default(now())
+  processedAt        DateTime?
+  error              String?
+  purchase           Purchase?                    @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, providerEventId])
+  @@index([provider, providerResourceId])
+  @@index([processingStatus, receivedAt])
+  @@index([purchaseId])
+  @@map("paymentEvent")
 }
 
 model Entitlement {

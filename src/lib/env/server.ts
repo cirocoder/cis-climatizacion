@@ -13,8 +13,17 @@ const emailEnvironmentSchema = z.object({
   EMAIL_FROM: z.string().min(1, "EMAIL_FROM es obligatorio"),
 });
 
+const mercadoPagoEnvironmentSchema = z.object({
+  MERCADOPAGO_ACCESS_TOKEN: z.string().min(1, "MERCADOPAGO_ACCESS_TOKEN es obligatorio"),
+  MERCADOPAGO_WEBHOOK_SECRET: z.string().min(1, "MERCADOPAGO_WEBHOOK_SECRET es obligatorio"),
+  MERCADOPAGO_COLLECTOR_ID: z.string().min(1, "MERCADOPAGO_COLLECTOR_ID es obligatorio"),
+  MERCADOPAGO_ENVIRONMENT: z.enum(["TEST", "PRODUCTION"]).default("TEST"),
+  APP_URL: z.url("APP_URL debe ser una URL válida"),
+});
+
 export type AuthEnvironment = z.infer<typeof authEnvironmentSchema>;
 export type EmailEnvironment = z.infer<typeof emailEnvironmentSchema>;
+export type MercadoPagoEnvironment = z.infer<typeof mercadoPagoEnvironmentSchema>;
 
 export function isAuthConfigured() {
   return authEnvironmentSchema.safeParse(process.env).success;
@@ -22,6 +31,10 @@ export function isAuthConfigured() {
 
 export function isEmailConfigured() {
   return process.env.NODE_ENV === "test" || emailEnvironmentSchema.safeParse(process.env).success;
+}
+
+export function isMercadoPagoConfigured() {
+  return mercadoPagoEnvironmentSchema.safeParse(process.env).success;
 }
 
 export function getAuthEnvironment(): AuthEnvironment {
@@ -36,6 +49,15 @@ export function getEmailEnvironment(): EmailEnvironment {
   const result = emailEnvironmentSchema.safeParse(process.env);
   if (!result.success) {
     throw new Error("El envío de correo no está configurado. Definí RESEND_API_KEY y EMAIL_FROM.");
+  }
+  return result.data;
+}
+
+
+export function getMercadoPagoEnvironment(): MercadoPagoEnvironment {
+  const result = mercadoPagoEnvironmentSchema.safeParse(process.env);
+  if (!result.success) {
+    throw new Error(`Configuración de Mercado Pago incompleta: ${result.error.issues.map(issue => issue.message).join("; ")}`);
   }
   return result.data;
 }

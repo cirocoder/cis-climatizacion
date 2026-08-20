@@ -28,7 +28,7 @@ npm start
 
 ## PostgreSQL y Prisma
 
-El esquema se encuentra en `prisma/schema.prisma`. Además de la identidad (`User`, `Session`, `Account`, `Verification`, `RateLimit`), Sprint 2 incorpora el catálogo `Product` y la autorización `Entitlement`.
+El esquema se encuentra en `prisma/schema.prisma`. Además de la identidad (`User`, `Session`, `Account`, `Verification`, `RateLimit`), el catálogo y los pagos utilizan `Product`, `Entitlement`, `Purchase`, `PurchaseItem` y `PaymentEvent`.
 
 Para Neon deben utilizarse dos conexiones:
 
@@ -151,7 +151,51 @@ Los productos futuros pueden añadirse a `academy.futureRoutes` y `academy.upcom
 
 Cada entrada de `academy.resources` utiliza el estado `Disponible` o `Próximamente`. Un recurso disponible debe incluir un `href` real; los recursos próximos se renderizan sin enlace para evitar destinos vacíos o rotos.
 
-La compra está deshabilitada mediante `academy.commerce.enabled: false`. La estructura reserva este punto para una integración futura con Mercado Pago, pero actualmente los CTA sólo abren WhatsApp o navegan dentro de Academia.
+## Compra única con Mercado Pago Checkout Pro
+
+Sprint 3 incorpora Checkout Pro únicamente para productos `PUBLISHED`, `ONE_TIME`, con precio positivo y moneda `ARS`. El Kit conserva `price = null`, por lo que la interfaz mantiene el estado `Próximamente` hasta que el propietario defina el valor real. El precio nunca se recibe ni se acepta desde el navegador.
+
+Para habilitar la compra:
+
+1. Abrir `npm run prisma:studio` sobre el entorno correspondiente.
+2. Editar el producto `kit-cis-5p` y completar `price` con el importe final en ARS; mantener `currency = ARS`.
+3. Completar las variables de Mercado Pago y utilizar una `APP_URL` HTTPS pública.
+4. Configurar en Mercado Pago el webhook de pagos hacia `https://DOMINIO/api/webhooks/mercadopago` y copiar su clave secreta.
+5. Aplicar migraciones con `npm run prisma:deploy` antes del despliegue.
+
+El seed crea el Kit con precio nulo sólo cuando aún no existe. Las ejecuciones posteriores actualizan su contenido público sin sobrescribir un precio configurado.
+
+Flujo implementado:
+
+1. `POST /api/checkout/mercadopago` exige sesión, valida el producto y crea `Purchase` + `PurchaseItem` con snapshot de precio/título.
+2. El servidor crea la preferencia en Mercado Pago y devuelve sólo la URL de Checkout Pro.
+3. Las páginas `/academia/compra/exito`, `/academia/compra/pendiente` y `/academia/compra/error` son informativas y nunca conceden acceso.
+4. `POST /api/webhooks/mercadopago` valida `x-signature`, consulta el pago directamente en Mercado Pago y coteja referencia, importe, moneda, pago y collector.
+5. Una transacción marca la compra `APPROVED`, crea o reactiva el `Entitlement` `PURCHASE` permanente y finaliza el evento idempotente.
+
+Los estados `pending`/`in_process`, `rejected` y `cancelled` no conceden acceso. Un reembolso completo pasa la compra a `REFUNDED` y revoca sólo el entitlement cuyo `sourceId` coincide con esa compra. Los eventos repetidos están protegidos por una clave única de proveedor/evento, el pago por una clave única y el entitlement por `user + product + sourceType`. Una clave de checkout activo y un límite de tres intentos nuevos por quince minutos reducen compras pendientes accidentales y abuso.
+
+Para reconciliar compras `PENDING` antiguas que ya tengan `providerPaymentId`:
+
+```bash
+npm run payments:reconcile
+```
+
+El comando reutiliza exactamente la misma consulta al proveedor y el mismo procesamiento idempotente del webhook. No hay cron de producción en este sprint.
+
+### Credenciales y pruebas de Mercado Pago
+
+Crear una aplicación de prueba en el panel de Mercado Pago y obtener:
+
+- Access Token de prueba del vendedor;
+- Collector ID de esa cuenta vendedora;
+- clave secreta generada al configurar Webhooks para el evento `Payments`.
+
+Checkout Pro por redirección no utiliza Public Key en el frontend, por eso Sprint 3 no define `MERCADOPAGO_PUBLIC_KEY`. Tampoco necesita `MERCADOPAGO_APP_ID` en runtime. No deben utilizarse credenciales ni dinero real durante las pruebas.
+
+Mercado Pago no admite `localhost` como URL pública de retorno/notificación. Para una compra de prueba usar una Preview de Vercel, staging o un túnel HTTPS seguro; configurar esa URL como `APP_URL`. Crear vendedor y comprador de prueba separados, abrir el checkout en incógnito y usar los datos de prueba oficiales. Confirmar primero que la redirección sola no habilita el Kit y luego verificar el webhook, la compra y el entitlement en la base de staging.
+
+Los tests automatizados mockean Mercado Pago y sólo usan PostgreSQL local. Nunca realizan llamadas reales ni permiten una base Neon como base destructiva de tests.
 
 El WhatsApp debe incluir código de país y área usando sólo dígitos. El formulario abre WhatsApp con una consulta precargada; no guarda ni envía datos a un backend.
 
@@ -197,9 +241,13 @@ BETTER_AUTH_URL=http://localhost:3000
 RESEND_API_KEY=
 EMAIL_FROM=
 APP_URL=http://localhost:3000
+MERCADOPAGO_ACCESS_TOKEN=
+MERCADOPAGO_WEBHOOK_SECRET=
+MERCADOPAGO_COLLECTOR_ID=
+MERCADOPAGO_ENVIRONMENT=TEST
 ```
 
-`BETTER_AUTH_SECRET` debe ser criptográficamente aleatorio y tener al menos 32 caracteres. Ninguna de estas variables debe usar el prefijo `NEXT_PUBLIC_`. `.env*` está ignorado por Git, con la única excepción deliberada de `.env.example`.
+`BETTER_AUTH_SECRET` debe ser criptográficamente aleatorio y tener al menos 32 caracteres. Access Token y secreto de webhook son exclusivamente server-side y nunca deben usar `NEXT_PUBLIC_`. `MERCADOPAGO_ENVIRONMENT` admite `TEST` o `PRODUCTION`; mantener `TEST` hasta completar toda la validación sandbox. `.env*` está ignorado por Git, con la única excepción deliberada de `.env.example`.
 
 En Vercel se deben configurar valores separados para Development, Preview y Production. Las URLs de producción deben utilizar HTTPS y coincidir con el dominio real.
 
@@ -208,7 +256,7 @@ En Vercel se deben configurar valores separados para Development, Preview y Prod
 1. Subir el proyecto a un repositorio Git.
 2. En Vercel, crear un proyecto e importar el repositorio.
 3. Mantener el preset Next.js y el comando `npm run build`.
-4. Conectar una base Neon y configurar las siete variables del ejemplo.
+4. Conectar una base Neon y configurar las variables del ejemplo para el entorno correspondiente.
 5. Ejecutar `npm run prisma:deploy` contra la rama de base correspondiente antes de promover el despliegue.
 6. Configurar y verificar el dominio remitente en Resend.
 7. Configurar el dominio definitivo.

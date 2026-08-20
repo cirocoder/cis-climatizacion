@@ -8,6 +8,6 @@ export async function seedAcademyProducts(prisma: PrismaClient) {
   return prisma.product.upsert({
     where: { slug: KIT_CIS_5P_SLUG },
     create: { slug: KIT_CIS_5P_SLUG, title: KIT_CIS_5P_TITLE, description: academy.featuredProduct.description, type: "KIT", status: "PUBLISHED", accessType: "ONE_TIME", price: null, currency: "ARS" },
-    update: { title: KIT_CIS_5P_TITLE, description: academy.featuredProduct.description, type: "KIT", status: "PUBLISHED", accessType: "ONE_TIME", price: null, currency: "ARS" },
+    update: { title: KIT_CIS_5P_TITLE, description: academy.featuredProduct.description, type: "KIT", status: "PUBLISHED", accessType: "ONE_TIME" },
   });
 }

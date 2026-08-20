@@ -3,6 +3,10 @@ import Link from "next/link";
 import { FivePDiagram } from "@/components/AcademyShell";
 import { Icon } from "@/components/icons";
 import { academy, academyWhatsappUrl } from "@/data/academy";
+import { KitPurchaseCta } from "@/components/academy/KitPurchaseCta";
+import { findActiveEntitlement, findPublishedProductBySlug } from "@/lib/catalog/access";
+import { getCurrentUser } from "@/lib/dal/auth";
+import { isAuthConfigured, isMercadoPagoConfigured } from "@/lib/env/server";
 
 const product = academy.featuredProduct;
 
@@ -13,13 +17,19 @@ export const metadata: Metadata = {
   openGraph: { title: `${product.name} | ${academy.name}`, description: product.description, url: `${academy.url}/kit-5p`, siteName: academy.name, type: "website" },
 };
 
-export default function KitFivePPage() {
+export default async function KitFivePPage() {
   const launchUrl = academyWhatsappUrl(product.launchMessage);
+  const [user, databaseProduct] = isAuthConfigured()
+    ? await Promise.all([getCurrentUser().catch(() => null), findPublishedProductBySlug("kit-cis-5p").catch(() => null)])
+    : [null, null];
+  const entitlement = user && databaseProduct ? await findActiveEntitlement(user.id, databaseProduct.id) : null;
+  const canCheckout = databaseProduct?.price !== null && databaseProduct?.price !== undefined && databaseProduct.price.greaterThan(0) && isMercadoPagoConfigured();
+  const purchaseState = entitlement ? "owned" : canCheckout ? user ? "buy" : "login" : "upcoming";
   const schema = { "@context": "https://schema.org", "@type": "Book", name: product.name, description: product.description, author: { "@type": "Organization", name: academy.name }, url: `${academy.url}/kit-5p`, bookFormat: "https://schema.org/EBook" };
   return <>
     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema).replace(/</g, "\\u003c") }}/>
     <section className="kit-hero academy-section">
-      <div className="academy-container kit-hero-grid"><div><p className="academy-eyebrow">{academy.name} · {product.format}</p><h1>{product.name}</h1><h2>{product.title}</h2><p>{product.description}</p><div className="academy-actions"><a className="academy-button academy-button-primary" href={launchUrl}>Quiero enterarme del lanzamiento <Icon name="arrow"/></a><Link className="academy-button academy-button-secondary" href="/academia/kit-5p/recursos">Ver recursos</Link></div><small className="kit-no-payment">Sin pagos habilitados en esta etapa.</small></div><div className="kit-cover" aria-hidden="true"><span>CIS Academia</span><strong>Kit CIS <b>5P</b></strong><small>Mantenimiento preventivo de Split</small><FivePDiagram compact/></div></div>
+      <div className="academy-container kit-hero-grid"><div><p className="academy-eyebrow">{academy.name} · {product.format}</p><h1>{product.name}</h1><h2>{product.title}</h2><p>{product.description}</p><div className="academy-actions"><KitPurchaseCta state={purchaseState} launchUrl={launchUrl}/><Link className="academy-button academy-button-secondary" href="/academia/kit-5p/recursos">Ver recursos</Link></div>{purchaseState === "upcoming" ? <small className="kit-no-payment">Sin pagos habilitados en esta etapa.</small> : null}</div><div className="kit-cover" aria-hidden="true"><span>CIS Academia</span><strong>Kit CIS <b>5P</b></strong><small>Mantenimiento preventivo de Split</small><FivePDiagram compact/></div></div>
     </section>
 
     <section className="academy-section kit-problem"><div className="academy-container kit-problem-grid"><div><p className="academy-eyebrow">El problema</p><h2>Un mantenimiento no debería depender de la improvisación</h2><p>Cada paso necesita un motivo, un orden y un resultado que pueda registrarse.</p></div><blockquote><Icon name="shield"/><strong>{product.rule}</strong><p>Si el equipo no enfría, no enciende o presenta una falla antes de intervenirlo, el servicio cambia a diagnóstico y reparación.</p></blockquote></div></section>
@@ -30,6 +40,6 @@ export default function KitFivePPage() {
 
     <section className="academy-section kit-previews" aria-labelledby="previews"><div className="academy-container"><div className="academy-section-head"><p className="academy-eyebrow">Previews</p><h2 id="previews">Herramientas para ejecutar y documentar</h2></div><div className="preview-grid">{product.previews.map((preview, index) => <article className={`preview-card preview-${preview.id}`} key={preview.id}><div className="preview-ui" aria-hidden="true">{index === 0 ? <><i/><i/><i/><i/><i/></> : index === 1 ? <><b>PSI</b><i/><b>ΔT</b><i/><b>A</b></> : <><span>INFORME TÉCNICO</span><i/><i/><i/><i/></>}</div><small>{preview.label}</small><h3>{preview.title}</h3><p>{preview.description}</p></article>)}</div></div></section>
 
-    <section className="academy-section kit-launch"><div className="academy-container kit-launch-card"><div><p className="academy-eyebrow">Próximo lanzamiento</p><h2>Recibí la información del Kit CIS 5P</h2><p>No hay pagos habilitados. La consulta abre WhatsApp con el mensaje preparado.</p></div><a className="academy-button academy-button-primary" href={launchUrl}>Quiero enterarme del lanzamiento <Icon name="arrow"/></a></div></section>
+    <section className="academy-section kit-launch"><div className="academy-container kit-launch-card"><div><p className="academy-eyebrow">Próximo lanzamiento</p><h2>Recibí la información del Kit CIS 5P</h2><p>{purchaseState === "upcoming" ? "No hay pagos habilitados. La consulta abre WhatsApp con el mensaje preparado." : entitlement ? "El producto ya está disponible en tu biblioteca personal." : "El pago se procesa de forma segura en Mercado Pago."}</p></div><KitPurchaseCta state={purchaseState} launchUrl={launchUrl}/></div></section>
   </>;
 }
