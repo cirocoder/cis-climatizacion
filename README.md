@@ -28,7 +28,7 @@ npm start
 
 ## PostgreSQL y Prisma
 
-El esquema se encuentra en `prisma/schema.prisma`. Además de la identidad (`User`, `Session`, `Account`, `Verification`, `RateLimit`), el catálogo y los pagos utilizan `Product`, `Entitlement`, `Purchase`, `PurchaseItem` y `PaymentEvent`.
+El esquema se encuentra en `prisma/schema.prisma`. Además de la identidad (`User`, `Session`, `Account`, `Verification`, `RateLimit`), el catálogo, los pagos y la entrega privada utilizan `Product`, `Entitlement`, `Purchase`, `PurchaseItem`, `PaymentEvent` y `Resource`.
 
 Para Neon deben utilizarse dos conexiones:
 
@@ -110,7 +110,7 @@ npm run entitlement:revoke -- correo@dominio.com kit-cis-5p
 
 Ambos comandos validan los argumentos, buscan un usuario y producto existentes, son idempotentes y no exponen endpoints HTTP. El grant usa `sourceType=ADMIN` y acceso permanente; el revoke marca `REVOKED` y completa `revokedAt`.
 
-Los recursos mostrados dentro del producto privado continúan como `Próximamente`. Sprint 2 no incorpora archivos premium en `public/`; el almacenamiento y la descarga protegida quedan reservados para un sprint posterior.
+Los recursos del producto se guardan en PostgreSQL y los archivos reales en un bucket privado de Cloudflare R2. Ningún archivo premium pertenece a `public/`; `Resource.storageKey` tampoco se envía a la interfaz.
 
 Todos los registros reciben el rol `USER`. El campo `role` no se acepta desde formularios ni desde el endpoint público de registro.
 
@@ -149,11 +149,11 @@ Rutas publicadas actualmente:
 
 Los productos futuros pueden añadirse a `academy.futureRoutes` y `academy.upcomingProducts`, pero no deben enlazarse hasta que exista su página real.
 
-Cada entrada de `academy.resources` utiliza el estado `Disponible` o `Próximamente`. Un recurso disponible debe incluir un `href` real; los recursos próximos se renderizan sin enlace para evitar destinos vacíos o rotos.
+`src/data/resources.ts` define el catálogo inicial de recursos del Kit. El seed crea sus filas sin sobrescribir una carga real: conserva `status`, `storageKey`, MIME, tamaño y nombre de descarga. Las tarjetas `COMING_SOON` se renderizan sin enlaces vacíos.
 
 ## Compra única con Mercado Pago Checkout Pro
 
-Sprint 3 incorpora Checkout Pro únicamente para productos `PUBLISHED`, `ONE_TIME`, con precio positivo y moneda `ARS`. El Kit conserva `price = null`, por lo que la interfaz mantiene el estado `Próximamente` hasta que el propietario defina el valor real. El precio nunca se recibe ni se acepta desde el navegador.
+Sprint 3 incorpora Checkout Pro únicamente para productos `PUBLISHED`, `ONE_TIME`, con precio positivo y moneda `ARS`. El precio operativo confirmado del Kit es ARS 37.500 y vive exclusivamente en PostgreSQL; nunca se recibe ni se acepta desde el navegador.
 
 Para habilitar la compra:
 
@@ -163,7 +163,88 @@ Para habilitar la compra:
 4. Configurar en Mercado Pago el webhook de pagos hacia `https://DOMINIO/api/webhooks/mercadopago` y copiar su clave secreta.
 5. Aplicar migraciones con `npm run prisma:deploy` antes del despliegue.
 
-El seed crea el Kit con precio nulo sólo cuando aún no existe. Las ejecuciones posteriores actualizan su contenido público sin sobrescribir un precio configurado.
+El seed crea el Kit con precio nulo sólo cuando aún no existe. Las ejecuciones posteriores actualizan su contenido público sin sobrescribir el precio ARS 37.500 ya configurado.
+
+## Recursos privados con Cloudflare R2
+
+El bucket debe permanecer privado. La aplicación utiliza la API S3 de R2 sólo desde el servidor y genera URLs `GET` firmadas por 120 segundos. Abrir usa `Content-Disposition: inline`; descargar usa `attachment`. Ambas variantes fijan un nombre seguro y el MIME registrado. El endpoint `/api/academy/resources/[resourceId]/access` comprueba sesión, producto, `Entitlement` utilizable, estado `AVAILABLE` y existencia/MIME del objeto antes de firmar.
+
+Los estados de `Resource` son:
+
+- `DRAFT`: edición interna, no visible ni accesible;
+- `COMING_SOON`: visible sin enlace ni objeto requerido;
+- `AVAILABLE`: requiere `storageKey`, MIME, nombre y tamaño reales, además de confirmación en R2;
+- `ARCHIVED`: no visible ni accesible.
+
+La migración añade una restricción PostgreSQL que impide persistir `AVAILABLE` sin esos datos. El ebook utiliza la clave estable `products/kit-cis-5p/manual/kit-cis-5p.pdf`; reemplazarlo vuelve a escribir esa misma clave y actualiza la misma fila, sin romper rutas de la web.
+
+### Crear y configurar R2
+
+1. Crear o ingresar a una cuenta de Cloudflare.
+2. Abrir **Storage & databases → R2 → Overview** y crear un bucket. Nombre recomendado: `cis-academia-private`.
+3. No conectar un dominio público ni habilitar `r2.dev`: los buckets nuevos son privados por defecto.
+4. En **Manage R2 API Tokens**, crear un token con **Object Read & Write** limitado únicamente a ese bucket.
+5. Guardar el Access Key ID y Secret Access Key cuando Cloudflare los muestra; el secreto no vuelve a mostrarse.
+6. Copiar el Account ID y formar/confirmar el endpoint `https://ACCOUNT_ID.r2.cloudflarestorage.com`.
+7. Completar localmente `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_ENDPOINT` y `R2_REGION=auto`.
+8. Repetir esas variables server-only en Vercel para Preview y Production y hacer redeploy. Ninguna usa `NEXT_PUBLIC_`.
+9. Si el navegador abre la URL firmada desde otro origen, configurar CORS del bucket con los dominios exactos de Academia, métodos `GET` y `HEAD`, y sin comodines innecesarios.
+
+Ejemplo de CORS para adaptar al dominio real:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://cisclimatizacion.com.ar"],
+    "AllowedMethods": ["GET", "HEAD"],
+    "AllowedHeaders": ["Range"],
+    "ExposeHeaders": ["Content-Length", "Content-Range", "Content-Type"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+### Subir y revisar recursos
+
+El ebook real localizado para la primera carga es `C:\Users\cirom\OneDrive\Escritorio\t\ebook Kit CIS 5P.pdf`. Antes de subirlo, revisar si se desea conservar sus metadatos de autor/Canva y sus enlaces internos; el script no altera el PDF.
+
+```bash
+npm run resource:upload -- kit-cis-5p manual "C:\Users\cirom\OneDrive\Escritorio\t\ebook Kit CIS 5P.pdf"
+npm run resource:list -- kit-cis-5p
+```
+
+Aliases canónicos: `manual`, `checklist`, `ficha-visita`, `mediciones`, `informe-tecnico`, `arbol-decisiones`, `unidad-interior` y `unidad-exterior`. Los aliases anteriores `hoja-mediciones`, `video-unidad-interior` y `video-unidad-exterior` siguen resolviendo la misma ficha para no romper comandos existentes.
+
+Formatos admitidos según el recurso: PDF para el manual y el árbol de decisiones; PDF o DOCX para checklist, ficha de visita e informe técnico; XLSX para mediciones; MP4 o WebM para videos. El script valida el contenido real y la extensión (incluida la estructura Open XML de DOCX/XLSX), sube el objeto sin ACL pública, confirma tamaño/MIME con R2 y recién entonces marca el recurso como `AVAILABLE`. Repetir el comando actualiza el mismo objeto y la misma fila, sin duplicarlos.
+
+```bash
+npm run resource:upload -- kit-cis-5p checklist "C:\ruta\checklist.pdf"
+npm run resource:upload -- kit-cis-5p ficha-visita "C:\ruta\ficha-visita.docx"
+npm run resource:upload -- kit-cis-5p mediciones "C:\ruta\hoja-mediciones.xlsx"
+npm run resource:upload -- kit-cis-5p informe-tecnico "C:\ruta\informe-tecnico.docx"
+npm run resource:upload -- kit-cis-5p arbol-decisiones "C:\ruta\arbol-decisiones.pdf"
+npm run resource:upload -- kit-cis-5p unidad-interior "C:\ruta\unidad-interior.mp4"
+npm run resource:upload -- kit-cis-5p unidad-exterior "C:\ruta\unidad-exterior.mp4"
+```
+
+Para probar el acceso:
+
+1. Conceder o comprar el Kit con una cuenta verificada y abrir `/academia/mi-academia/productos/kit-cis-5p`.
+2. Abrir o descargar el manual y comprobar una redirección temporal al dominio S3 de R2.
+3. Confirmar que la URL deja de responder después de 120 segundos.
+4. Probar la misma URL sin sesión, con otra cuenta y con el entitlement revocado: la aplicación no debe generar una nueva firma.
+5. Verificar el objeto desde el panel de R2, sin habilitar acceso público.
+
+Para reemplazar el ebook, conservar el alias `manual` y ejecutar nuevamente el upload. Para videos de mayor escala o streaming adaptativo se recomienda evaluar Cloudflare Stream o Mux en un sprint futuro; Sprint 4 entrega archivos mediante URL temporal y `<video controls>`.
+
+### URLs permanentes de videos
+
+El ebook puede enlazar de forma estable a:
+
+- `/academia/kit-5p/recursos/unidad-interior`
+- `/academia/kit-5p/recursos/unidad-exterior`
+
+Ambas rutas requieren sesión. Una cuenta sin entitlement activo ve el CTA comercial del Kit; una cuenta autorizada ve `Próximamente` hasta que el `Resource` correspondiente quede `AVAILABLE`. Cuando se suba un video real con `resource:upload`, la misma URL mostrará `<video controls>` mediante el endpoint firmado temporal, sin exponer `storageKey` ni una URL R2 permanente. Estas rutas no deben cambiarse después de distribuir el ebook.
 
 Flujo implementado:
 
@@ -245,6 +326,12 @@ MERCADOPAGO_ACCESS_TOKEN=
 MERCADOPAGO_WEBHOOK_SECRET=
 MERCADOPAGO_COLLECTOR_ID=
 MERCADOPAGO_ENVIRONMENT=TEST
+R2_ACCOUNT_ID=
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+R2_BUCKET_NAME=
+R2_ENDPOINT=
+R2_REGION=auto
 ```
 
 `BETTER_AUTH_SECRET` debe ser criptográficamente aleatorio y tener al menos 32 caracteres. Access Token y secreto de webhook son exclusivamente server-side y nunca deben usar `NEXT_PUBLIC_`. `MERCADOPAGO_ENVIRONMENT` admite `TEST` o `PRODUCTION`; mantener `TEST` hasta completar toda la validación sandbox. `.env*` está ignorado por Git, con la única excepción deliberada de `.env.example`.

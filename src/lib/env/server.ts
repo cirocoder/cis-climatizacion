@@ -21,9 +21,19 @@ const mercadoPagoEnvironmentSchema = z.object({
   APP_URL: z.url("APP_URL debe ser una URL válida"),
 });
 
+const r2EnvironmentSchema = z.object({
+  R2_ACCOUNT_ID: z.string().min(1, "R2_ACCOUNT_ID es obligatorio"),
+  R2_ACCESS_KEY_ID: z.string().min(1, "R2_ACCESS_KEY_ID es obligatorio"),
+  R2_SECRET_ACCESS_KEY: z.string().min(1, "R2_SECRET_ACCESS_KEY es obligatorio"),
+  R2_BUCKET_NAME: z.string().min(3, "R2_BUCKET_NAME es obligatorio"),
+  R2_ENDPOINT: z.url("R2_ENDPOINT debe ser una URL válida"),
+  R2_REGION: z.literal("auto").default("auto"),
+});
+
 export type AuthEnvironment = z.infer<typeof authEnvironmentSchema>;
 export type EmailEnvironment = z.infer<typeof emailEnvironmentSchema>;
 export type MercadoPagoEnvironment = z.infer<typeof mercadoPagoEnvironmentSchema>;
+export type R2Environment = z.infer<typeof r2EnvironmentSchema>;
 
 export function isAuthConfigured() {
   return authEnvironmentSchema.safeParse(process.env).success;
@@ -35,6 +45,10 @@ export function isEmailConfigured() {
 
 export function isMercadoPagoConfigured() {
   return mercadoPagoEnvironmentSchema.safeParse(process.env).success;
+}
+
+export function isR2Configured() {
+  return r2EnvironmentSchema.safeParse(process.env).success;
 }
 
 export function getAuthEnvironment(): AuthEnvironment {
@@ -58,6 +72,18 @@ export function getMercadoPagoEnvironment(): MercadoPagoEnvironment {
   const result = mercadoPagoEnvironmentSchema.safeParse(process.env);
   if (!result.success) {
     throw new Error(`Configuración de Mercado Pago incompleta: ${result.error.issues.map(issue => issue.message).join("; ")}`);
+  }
+  return result.data;
+}
+
+export function getR2Environment(): R2Environment {
+  const result = r2EnvironmentSchema.safeParse(process.env);
+  if (!result.success) {
+    throw new Error(`Configuración de R2 incompleta: ${result.error.issues.map(issue => issue.message).join("; ")}`);
+  }
+  const endpoint = new URL(result.data.R2_ENDPOINT);
+  if (endpoint.protocol !== "https:" || endpoint.hostname !== `${result.data.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`) {
+    throw new Error("R2_ENDPOINT debe ser el endpoint S3 HTTPS correspondiente a R2_ACCOUNT_ID");
   }
   return result.data;
 }

@@ -62,6 +62,23 @@ enum PaymentEventProcessingStatus {
   IGNORED
 }
 
+enum ResourceType {
+  PDF
+  CHECKLIST
+  TEMPLATE
+  REPORT
+  MEASUREMENT_SHEET
+  VIDEO
+  OTHER
+}
+
+enum ResourceStatus {
+  DRAFT
+  AVAILABLE
+  COMING_SOON
+  ARCHIVED
+}
+
 model User {
   id            String    @id
   name          String
@@ -93,9 +110,34 @@ model Product {
   updatedAt    DateTime          @updatedAt
   entitlements Entitlement[]
   purchaseItems PurchaseItem[]
+  resources     Resource[]
 
   @@index([status])
   @@map("product")
+}
+
+model Resource {
+  id           String         @id @default(cuid())
+  productId    String
+  title        String
+  description  String?
+  type         ResourceType
+  status       ResourceStatus @default(DRAFT)
+  storageKey   String?        @unique
+  mimeType     String?
+  fileSize     BigInt?
+  downloadName String?
+  position     Int            @default(0)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  product      Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, title])
+  @@index([productId])
+  @@index([status])
+  @@index([position])
+  @@index([productId, status])
+  @@map("resource")
 }
 
 model Purchase {
